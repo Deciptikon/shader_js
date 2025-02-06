@@ -12,5 +12,14 @@
     </div>
 
     <script src="js/app.js?v=1.0.1"></script>
+    <script>
+      function initBridge() {
+        vkBridge.send("VKWebAppInit");
+      }
+    </script>
+    <script
+      src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js"
+      onload="initBridge()"
+    ></script>
   </body>
 </html>
