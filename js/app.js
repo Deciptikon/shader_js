@@ -3,10 +3,10 @@ canvas.tabIndex = 1000;
 canvas.focus();
 
 let isMouseDown = false;
-let offset = { x: 0, y: 0 };
+let offset = { x: 1500, y: 0 };
 let prevPos = { x: 0, y: 0 };
 let currPos = { x: 0, y: 0 };
-let scale = 0.5;
+let scale = 0.1;
 
 canvas.addEventListener("wheel", (e) => {
   const scaleFactor = e.deltaY > 0 ? 1.1 : 0.9;
@@ -154,7 +154,7 @@ const fragmentShaderWave = `
             Amin = 100.0;
         }
 
-        float normalized = (Amin + 0.5) * 0.5; // Нормализация
+        float normalized = (Amin + 0.1) * 10.0; // Нормализация
         gl_FragColor = vec4(normalized, normalized, normalized, 1.0);
     }
 `;
@@ -190,7 +190,7 @@ function main() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  data = [30.743, 1.0, 0.1, 0.1]; // chi, omega, A, s
+  data = [12.372, 1.0, 0.1, 0.1]; // chi, omega, A, s
   geometryA = [canvas.width, canvas.height]; // W, H
   geometryB = [offset.x * scale, -offset.y * scale, scale]; // x0, y0, scale
   support = [200, 100]; // R, r
