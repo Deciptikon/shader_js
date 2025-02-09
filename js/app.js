@@ -3,10 +3,10 @@ canvas.tabIndex = 1000;
 canvas.focus();
 
 let isMouseDown = false;
-let offset = { x: 1500, y: 0 };
+let offset = { x: 0, y: 0 };
 let prevPos = { x: 0, y: 0 };
 let currPos = { x: 0, y: 0 };
-let scale = 0.1;
+let scale = 0.5;
 
 canvas.addEventListener("wheel", (e) => {
   const scaleFactor = e.deltaY > 0 ? 1.1 : 0.9;
@@ -16,6 +16,8 @@ canvas.addEventListener("wheel", (e) => {
   offset.y -= (offset.y * (newScale - scale)) / newScale;
 
   scale = newScale;
+
+  console.log(`scale = ${scale}  | x,y = ${offset.x},${offset.y}`);
 
   main();
 });
@@ -75,6 +77,9 @@ const vertexShaderSource = `
 const fragmentShaderWave = `
     precision mediump float;
 
+    const float TWO_PI = 2.0 * 3.141592653589793;
+    const float EPSILON = 1e-6;
+
     uniform vec2 u_resolution;
     uniform vec4 u_data;       // chi, omega, A, s
     uniform vec2 u_geometryA;  // W, H
@@ -85,6 +90,11 @@ const fragmentShaderWave = `
     float f(float x, float alfa, float betta, float gamma, float ro) {
         alfa -= gamma;
         betta += gamma;
+
+        if (x != x) {
+          return 0.0;
+        }
+
         if (x < -(ro * sin(betta))) {
             return -x * tan(betta) + ro * (1.0 - 1.0 / cos(betta));
         } else if (x < ro * sin(alfa)) {
@@ -104,14 +114,20 @@ const fragmentShaderWave = `
 
     float fiQ(float x, float y, float x0, float y0) {
         float L = dist(x, y, x0, y0);
-        if (L == 0.0) return 0.0;
-        return (y - y0 < 0.0) ? (2.0 * 3.141592653589793 - acos((x - x0) / L)) : acos((x - x0) / L);
+        if (L < EPSILON) return 0.0;
+
+        float arg = (x - x0) / L;
+        arg = arg > 1.0 ? 1.0 : arg;
+        arg = arg < -1.0 ? -1.0 : arg;
+
+        float ang = acos(arg);
+        return (y - y0 < 0.0 ? (TWO_PI - ang) : ang);
     }
 
     void main() {
         vec2 uv = gl_FragCoord.xy / u_resolution;
 
-        const float TWO_PI = 2.0 * 3.141592653589793;
+        
 
         float W = u_geometryA.x;
         float H = u_geometryA.y;
@@ -140,21 +156,35 @@ const fragmentShaderWave = `
         float fi = fiQ(x, y, x0, y0);
 
         float lambda = L - (fi * s) / (TWO_PI);
-        float Amin = 100.0;
+        float Amin = 1.0;
 
         if (L >= 0.0 && L <= (R - r)) {
-            float ns = floor(L / s);
+            int ns = int(L / s);
+            //Amin = -0.05;
             for (int k = -mk; k <= mk; k++) { 
-                float kk = ns + float(k); 
-                float K = A * sin(((fi + kk * TWO_PI) * chi) / omega);
-                float Amp = f(lambda - kk * s + K * sin(gamma), alfa, betta, gamma, ro) + K * cos(gamma);
-                if (Amp < Amin) Amin = Amp;
+                int kk = ns + k; 
+                float kpi = float(kk) * TWO_PI;
+                float kkfi = fi + kpi;
+                float psi = (kkfi * chi) / omega;
+                float K = A * sin(psi);
+                
+                float ff = f(lambda - float(kk) * s + K * sin(gamma), alfa, betta, gamma, ro);
+                float pp = K * cos(gamma);
+                float Amp = ff + pp;
+                
+                bool isNaN = (Amp != Amp);
+                bool isInf = (Amp != 0.0 && Amp * 2.0 == Amp);
+                if(L > (R - r)*0.5) {
+                  Amin = -1.1;
+                } else if (Amp < Amin) {
+                  Amin = Amp;
+                }
             }
         } else {
-            Amin = 100.0;
+            Amin = 1.0;
         }
 
-        float normalized = (Amin + 0.1) * 10.0; // Нормализация
+        float normalized = (Amin + 0.001) * 100.0; // Нормализация
         gl_FragColor = vec4(normalized, normalized, normalized, 1.0);
     }
 `;
@@ -190,10 +220,10 @@ function main() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  data = [12.372, 1.0, 0.1, 0.1]; // chi, omega, A, s
+  data = [1.0, 1.0, 0.001, 0.001]; // chi, omega, A, s
   geometryA = [canvas.width, canvas.height]; // W, H
   geometryB = [offset.x * scale, -offset.y * scale, scale]; // x0, y0, scale
-  support = [200, 100]; // R, r
+  support = [200, 20]; // R, r
   resez = [0.1, 0.15, 0.0, 0.001]; // alfa, betta, gamma, ro
 
   //console.log(`geometry[0] = ${geometry[0]}`);
