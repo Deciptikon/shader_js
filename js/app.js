@@ -2,11 +2,14 @@ const canvas = document.getElementById("canvas");
 canvas.tabIndex = 1000;
 canvas.focus();
 
+const gl = canvas.getContext("webgl");
+
 let isMouseDown = false;
 let offset = { x: 0, y: 0 };
 let prevPos = { x: 0, y: 0 };
 let currPos = { x: 0, y: 0 };
 let scale = 0.5;
+let needUpdate = true;
 
 canvas.addEventListener("wheel", (e) => {
   const scaleFactor = e.deltaY > 0 ? 1.1 : 0.9;
@@ -18,8 +21,7 @@ canvas.addEventListener("wheel", (e) => {
   scale = newScale;
 
   console.log(`scale = ${scale}  | x,y = ${offset.x},${offset.y}`);
-
-  main();
+  needUpdate = true;
 });
 
 canvas.addEventListener("keydown", (e) => {
@@ -29,7 +31,7 @@ canvas.addEventListener("keydown", (e) => {
     prevPos = { x: 0, y: 0 };
     currPos = { x: 0, y: 0 };
     isMouseDown = false;
-    main();
+    needUpdate = true;
   }
 });
 
@@ -39,6 +41,7 @@ canvas.addEventListener("mousedown", (e) => {
     const rect = canvas.getBoundingClientRect();
     prevPos.x = e.clientX - rect.left;
     prevPos.y = e.clientY - rect.top;
+    needUpdate = true;
   }
 });
 
@@ -55,7 +58,7 @@ canvas.addEventListener("mousemove", (e) => {
     prevPos.y = mouseY;
     currPos = { x: 0, y: 0 };
 
-    main();
+    needUpdate = true;
   }
 });
 
@@ -67,205 +70,160 @@ canvas.addEventListener("mouseleave", () => {
   isMouseDown = false;
 });
 
-const vertexShaderSource = `
-    attribute vec4 a_position;
-    void main() {
-        gl_Position = a_position;
-    }
-`;
+// Функция обновления uniform-переменных
+function updateUniforms(gl, program) {
+  const geometryB = [offset.x * scale, -offset.y * scale, scale];
 
-const fragmentShaderWave = `
-    precision mediump float;
-
-    const float TWO_PI = 2.0 * 3.141592653589793;
-    const float EPSILON = 1e-6;
-
-    uniform vec2 u_resolution;
-    uniform vec4 u_data;       // chi, omega, A, s
-    uniform vec2 u_geometryA;  // W, H
-    uniform vec3 u_geometryB;  // x0, y0, scale
-    uniform vec2 u_support;    // R, r
-    uniform vec4 u_resez;      // alfa, betta, gamma, ro
-
-    float f(float x, float alfa, float betta, float gamma, float ro) {
-        alfa -= gamma;
-        betta += gamma;
-
-        if (x != x) {
-          return 0.0;
-        }
-
-        if (x < -(ro * sin(betta))) {
-            return -x * tan(betta) + ro * (1.0 - 1.0 / cos(betta));
-        } else if (x < ro * sin(alfa)) {
-            return ro * (1.0 - sqrt(1.0 - (x / ro) * (x / ro)));
-        } else {
-            return x * tan(alfa) + ro * (1.0 - 1.0 / cos(alfa));
-        }
-    }
-
-    float dist(float x, float y, float x0, float y0) {
-        return sqrt((x - x0) * (x - x0) + (y - y0) * (y - y0));
-    }
-
-    float lenQ(float x, float y, float x0, float y0, float R) {
-        return R - dist(x, y, x0, y0);
-    }
-
-    float fiQ(float x, float y, float x0, float y0) {
-        float L = dist(x, y, x0, y0);
-        if (L < EPSILON) return 0.0;
-
-        float arg = (x - x0) / L;
-        arg = arg > 1.0 ? 1.0 : arg;
-        arg = arg < -1.0 ? -1.0 : arg;
-
-        float ang = acos(arg);
-        return (y - y0 < 0.0 ? (TWO_PI - ang) : ang);
-    }
-
-    void main() {
-        vec2 uv = gl_FragCoord.xy / u_resolution;
-
-        
-
-        float W = u_geometryA.x;
-        float H = u_geometryA.y;
-        float x0 = u_geometryB.x;
-        float y0 = u_geometryB.y;
-        float scale = u_geometryB.z;
-
-        float chi = u_data.x;
-        float omega = u_data.y;
-        float A = u_data.z;
-        float s = u_data.w;
-
-        float R = u_support.x;
-        float r = u_support.y;
-        const int mk = 10;
-
-        float alfa = u_resez.x;
-        float betta = u_resez.y;
-        float gamma = u_resez.z;
-        float ro = u_resez.w;
-
-        float x = (uv.x * W - W / 2.0) * scale;
-        float y = (uv.y * H - H / 2.0) * scale;
-
-        float L = lenQ(x, y, x0, y0, R);
-        float fi = fiQ(x, y, x0, y0);
-
-        float lambda = L - (fi * s) / (TWO_PI);
-        float Amin = 1.0;
-
-        if (L >= 0.0 && L <= (R - r)) {
-            int ns = int(L / s);
-            //Amin = -0.05;
-            for (int k = -mk; k <= mk; k++) { 
-                int kk = ns + k; 
-                float kpi = float(kk) * TWO_PI;
-                float kkfi = fi + kpi;
-                float psi = (kkfi * chi) / omega;
-                float K = A * sin(psi);
-                
-                float ff = f(lambda - float(kk) * s + K * sin(gamma), alfa, betta, gamma, ro);
-                float pp = K * cos(gamma);
-                float Amp = ff + pp;
-                
-                bool isNaN = (Amp != Amp);
-                bool isInf = (Amp != 0.0 && Amp * 2.0 == Amp);
-                if(L > (R - r)*0.5) {
-                  Amin = -1.1;
-                } else if (Amp < Amin) {
-                  Amin = Amp;
-                }
-            }
-        } else {
-            Amin = 1.0;
-        }
-
-        float normalized = (Amin + 0.001) * 100.0; // Нормализация
-        gl_FragColor = vec4(normalized, normalized, normalized, 1.0);
-    }
-`;
-
-function createShader(gl, type, source) {
-  const shader = gl.createShader(type);
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    console.error(gl.getShaderInfoLog(shader));
-    gl.deleteShader(shader);
-    return null;
-  }
-  return shader;
+  gl.uniform3f(
+    gl.getUniformLocation(program, "u_geometryB"),
+    geometryB[0],
+    geometryB[1],
+    geometryB[2]
+  );
 }
 
-function createProgram(gl, vertexSource, fragmentSource) {
-  const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexSource);
-  const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+// Функция рендеринга
+function render(gl) {
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+}
+
+async function loadShader(url) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return await response.text();
+  } catch (error) {
+    console.error("Error loading shader:", error);
+    return null;
+  }
+}
+
+async function createShaderProgram(gl, vertUrl, fragUrl) {
+  const [vertSource, fragSource] = await Promise.all([
+    loadShader(vertUrl),
+    loadShader(fragUrl),
+  ]);
+
+  // Создание и компиляция шейдеров
+  const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(vertexShader, vertSource);
+  gl.compileShader(vertexShader);
+
+  const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(fragmentShader, fragSource);
+  gl.compileShader(fragmentShader);
+
+  // Проверка ошибок компиляции
+  if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+    console.error("Vertex shader error:", gl.getShaderInfoLog(vertexShader));
+    return null;
+  }
+
+  if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+    console.error(
+      "Fragment shader error:",
+      gl.getShaderInfoLog(fragmentShader)
+    );
+    return null;
+  }
+
+  // Создание программы
   const program = gl.createProgram();
   gl.attachShader(program, vertexShader);
   gl.attachShader(program, fragmentShader);
   gl.linkProgram(program);
+
+  // Проверка ошибок линковки
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    console.error(gl.getProgramInfoLog(program));
+    console.error("Program linking error:", gl.getProgramInfoLog(program));
     return null;
   }
+
   return program;
 }
 
-function main() {
-  const canvas = document.getElementById("canvas");
+async function main() {
+  //const canvas = document.getElementById("canvas");
+  if (!canvas) {
+    console.error("Canvas element not found!");
+    return;
+  }
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  data = [1.0, 1.0, 0.001, 0.001]; // chi, omega, A, s
-  geometryA = [canvas.width, canvas.height]; // W, H
-  geometryB = [offset.x * scale, -offset.y * scale, scale]; // x0, y0, scale
-  support = [200, 20]; // R, r
-  resez = [0.1, 0.15, 0.0, 0.001]; // alfa, betta, gamma, ro
+  // Инициализация переменных
+  let offset = { x: 0, y: 0 };
+  let scale = 1.0;
+  const data = [1.0, 1.0, 0.001, 0.001];
+  const geometryA = [canvas.width, canvas.height];
+  const geometryB = [offset.x * scale, -offset.y * scale, scale];
+  const support = [200, 20];
+  const resez = [0.1, 0.15, 0.0, 0.001];
 
-  //console.log(`geometry[0] = ${geometry[0]}`);
-  const gl = canvas.getContext("webgl");
-  gl.clearColor(1, 0.5, 0.5, 1);
+  // Инициализация WebGL
 
-  const program = createProgram(gl, vertexShaderSource, fragmentShaderWave);
-  gl.useProgram(program);
-
-  const positionBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-  const positions = [-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1];
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-
-  const positionLocation = gl.getAttribLocation(program, "a_position");
-  gl.enableVertexAttribArray(positionLocation);
-  gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-
-  function setUniforms() {
-    const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
-    gl.uniform2f(resolutionLocation, geometryA[0], geometryA[1]);
-
-    const dataLocation = gl.getUniformLocation(program, "u_data");
-    gl.uniform4f(dataLocation, data[0], data[1], data[2], data[3]);
-
-    const geometryALocation = gl.getUniformLocation(program, "u_geometryA");
-    gl.uniform2f(geometryALocation, geometryA[0], geometryA[1]);
-
-    const geometryBLocation = gl.getUniformLocation(program, "u_geometryB");
-    gl.uniform3f(geometryBLocation, geometryB[0], geometryB[1], geometryB[2]);
-
-    const supportLocation = gl.getUniformLocation(program, "u_support");
-    gl.uniform2f(supportLocation, support[0], support[1]);
-
-    const resezLocation = gl.getUniformLocation(program, "u_resez");
-    gl.uniform4f(resezLocation, resez[0], resez[1], resez[2], resez[3]);
+  if (!gl) {
+    alert("WebGL не поддерживается!");
+    return;
   }
 
-  setUniforms();
+  try {
+    const program = await createShaderProgram(
+      gl,
+      "shaders/vert.glsl",
+      "shaders/frag.glsl"
+    );
+    if (!program) {
+      console.error("Failed to create shader program");
+      return;
+    }
 
-  gl.drawArrays(gl.TRIANGLES, 0, 6);
-  console.log("succes");
+    // Настройка буферов
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    const positions = [-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1];
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+    // Настройка атрибутов
+    const positionLocation = gl.getAttribLocation(program, "a_position");
+    gl.enableVertexAttribArray(positionLocation);
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+    // Использование программы
+    gl.useProgram(program);
+
+    // Функция обновления uniform-переменных
+    function setUniforms() {
+      gl.uniform2f(
+        gl.getUniformLocation(program, "u_resolution"),
+        ...geometryA
+      );
+      gl.uniform4f(gl.getUniformLocation(program, "u_data"), ...data);
+      gl.uniform2f(gl.getUniformLocation(program, "u_geometryA"), ...geometryA);
+      gl.uniform3f(gl.getUniformLocation(program, "u_geometryB"), ...geometryB);
+      gl.uniform2f(gl.getUniformLocation(program, "u_support"), ...support);
+      gl.uniform4f(gl.getUniformLocation(program, "u_resez"), ...resez);
+    }
+    setUniforms();
+
+    //addEventListeners(canvas, gl, program);
+    updateUniforms(gl, program);
+    render(gl);
+
+    function animate() {
+      requestAnimationFrame(animate);
+      if (needUpdate) {
+        needUpdate = false;
+        updateUniforms(gl, program);
+        render(gl);
+      }
+    }
+    animate();
+  } catch (error) {
+    console.error("Ошибка при инициализации:", error);
+  }
 }
 
+// Запуск
 main();
